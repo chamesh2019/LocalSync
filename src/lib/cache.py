@@ -46,7 +46,7 @@ class CacheEventHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         
-        if event.src_path.endswith(".deb"):
+        if str(event.src_path).endswith(".deb"):
             os.system(f"cp {event.src_path} {CONTENT_DIR}")
             logger.info(f"New cache file detected and copied: {event.src_path}")
             Config().add_to_cache(event.src_path)
@@ -57,6 +57,19 @@ class CacheEventHandler(FileSystemEventHandler):
             os.path.basename(item).replace(".deb", "").split("_") for item in items
         ]
         return formatted
+    
+    def get_package(self, package_name):
+        items = Config().get_cache()
+        packages = []
+        for item in items:
+            parts = os.path.basename(item).replace(".deb", "").split("_")
+            if parts[0] == package_name:
+                packages.append({
+                    "name": parts[0],
+                    "version": parts[1],
+                    "architecture": parts[2],
+                })
+        return packages if packages else []
 
     
             
