@@ -2,7 +2,6 @@
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.staticfiles import StaticFiles
 import asyncio
 
 from src.lib.cache import CacheEventHandler
@@ -46,9 +45,6 @@ def create_app():
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    # Mount static files
-    app.mount("/static", StaticFiles(directory="content"), name="static")
 
     # Initialize cache event handler
     cache_event_handler = CacheEventHandler()

@@ -1,0 +1,12 @@
+#!/bin/bash
+# Post-installation script for LocalSync
+
+# Create necessary directories
+mkdir -p /var/cache/apt/archives/ 2>/dev/null || true
+mkdir -p /usr/share/doc/localsync/ 2>/dev/null || true
+
+# Set proper permissions
+chmod 755 /usr/bin/localsync 2>/dev/null || true
+
+echo "LocalSync installed successfully!"
+echo "Run 'localsync --help' for usage information."

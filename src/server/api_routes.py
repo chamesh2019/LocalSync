@@ -1,9 +1,17 @@
 """API endpoints for LocalSync server."""
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 import socket
+import os
 from src.lib.cache import CacheEventHandler
 from .network_utils import get_ip_list
 from .mdns_service import SERVICE_PORT, is_mdns_registered
+
+
+class FileRequest(BaseModel):
+    """Request model for file download."""
+    filename: str
 
 
 def setup_api_routes(app: FastAPI, cache_event_handler: CacheEventHandler):
@@ -32,3 +40,26 @@ def setup_api_routes(app: FastAPI, cache_event_handler: CacheEventHandler):
         if package:
             return package
         return {"error": "Package not found"}
+
+    @app.post("/api/download")
+    def download_file(file_request: FileRequest):
+        """Download a file by filename provided in POST request body."""
+        filename = file_request.filename
+        
+        # Validate filename (basic security check)
+        if not filename or '..' in filename or filename.startswith('/'):
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        
+        # Construct file path
+        file_path = os.path.join("content", filename)
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # Return file response
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type='application/octet-stream'
+        )

@@ -1,0 +1,25 @@
+Source: localsync
+Section: net
+Priority: optional
+Maintainer: Chamesh <chamesh2019@github.com>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-setuptools, python3-all
+Standards-Version: 4.6.0
+Homepage: https://github.com/chamesh2019/LocalSync
+Vcs-Browser: https://github.com/chamesh2019/LocalSync
+Vcs-Git: https://github.com/chamesh2019/LocalSync.git
+Rules-Requires-Root: no
+
+Package: localsync
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends}, python3-fastapi, python3-netifaces, python3-requests, python3-tabulate, python3-uvicorn, python3-watchdog, python3-zeroconf
+Description: Local package synchronization and sharing tool
+ LocalSync is a tool that allows you to share and synchronize packages
+ across local networks. It provides a server that can share cached packages
+ and a client that can discover and install packages from network peers.
+ .
+ Features:
+  - Network discovery using mDNS/Bonjour
+  - Package caching and sharing
+  - Compatible package filtering by architecture
+  - Web API for package management
+  - Command-line interface for easy usage

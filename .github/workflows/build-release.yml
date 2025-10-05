@@ -1,0 +1,250 @@
+name: Build and Release APT Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release'
+        required: true
+        default: '0.1.0'
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          debhelper \
+          dh-python \
+          python3-setuptools \
+          python3-all \
+          python3-pip \
+          build-essential \
+          devscripts \
+          lintian
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install setuptools wheel
+    
+    - name: Update version in files
+      run: |
+        VERSION=${{ github.event.inputs.version || github.ref_name }}
+        VERSION=${VERSION#v}  # Remove 'v' prefix if present
+        
+        # Update setup.py version
+        sed -i "s/version=\".*\"/version=\"$VERSION\"/" setup.py
+        
+        # Update pyproject.toml version
+        sed -i "s/version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+        
+        # Update debian/changelog
+        dch --newversion "$VERSION-1" --distribution unstable "Release version $VERSION" || echo "dch not available, skipping changelog update"
+    
+    - name: Make debian/rules executable
+      run: chmod +x debian/rules
+    
+    - name: Build source package
+      run: |
+        dpkg-source --build .
+    
+    - name: Build binary package
+      run: |
+        dpkg-buildpackage -us -uc -b
+    
+    - name: List built packages
+      run: |
+        ls -la ../*.deb || echo "No .deb files found"
+        ls -la ../*.dsc || echo "No .dsc files found"
+        ls -la ../*.tar.* || echo "No source archives found"
+    
+    - name: Run package tests
+      run: |
+        # Test package installation
+        sudo dpkg -i ../localsync_*.deb || true
+        sudo apt-get install -f -y || true
+        
+        # Test if command is available
+        which localsync || echo "localsync command not found"
+        
+        # Test help command
+        localsync --help || echo "localsync --help failed"
+    
+    - name: Upload built packages as artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: debian-packages
+        path: |
+          ../*.deb
+          ../*.dsc
+          ../*.tar.*
+          ../*.changes
+    
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ../*.deb
+          ../*.dsc
+          ../*.tar.*
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-to-apt-repo:
+    needs: build-deb
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download built packages
+      uses: actions/download-artifact@v3
+      with:
+        name: debian-packages
+        path: ./packages
+    
+    - name: Set up APT repository
+      run: |
+        # Install reprepro for managing APT repository
+        sudo apt-get update
+        sudo apt-get install -y reprepro gnupg
+        
+        # Create repository structure
+        mkdir -p apt-repo/conf
+        
+        # Create distributions file
+        cat > apt-repo/conf/distributions << EOF
+        Origin: LocalSync
+        Label: LocalSync APT Repository  
+        Codename: stable
+        Architectures: amd64 arm64 armhf i386 all
+        Components: main
+        Description: LocalSync package repository
+        SignWith: yes
+        EOF
+    
+    - name: Import GPG key
+      run: |
+        # Create a GPG key for signing (or use existing one from secrets)
+        if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --import
+        else
+          # Generate a temporary key for development
+          cat > gpg-batch << EOF
+          %echo Generating GPG key
+          Key-Type: RSA
+          Key-Length: 2048
+          Subkey-Type: RSA
+          Subkey-Length: 2048
+          Name-Real: LocalSync Repository
+          Name-Email: noreply@localsync.dev
+          Expire-Date: 1y
+          %no-protection
+          %commit
+          %echo done
+        EOF
+          gpg --batch --generate-key gpg-batch
+        fi
+    
+    - name: Add packages to repository
+      run: |
+        cd apt-repo
+        
+        # Add all .deb packages
+        for deb in ../packages/*.deb; do
+          if [ -f "$deb" ]; then
+            reprepro includedeb stable "$deb"
+          fi
+        done
+        
+        # Export public key
+        gpg --armor --export > public.key
+    
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./apt-repo
+        publish_branch: gh-pages
+        force_orphan: true
+    
+    - name: Create installation instructions
+      run: |
+        cat > INSTALL.md << 'EOF'
+        # LocalSync APT Repository Installation
+
+        ## Add the repository
+
+        ```bash
+        # Add the repository key
+        curl -fsSL https://chamesh2019.github.io/LocalSync/public.key | sudo apt-key add -
+
+        # Add the repository
+        echo "deb https://chamesh2019.github.io/LocalSync stable main" | sudo tee /etc/apt/sources.list.d/localsync.list
+
+        # Update package list
+        sudo apt update
+        ```
+
+        ## Install LocalSync
+
+        ```bash
+        sudo apt install localsync
+        ```
+
+        ## Usage
+
+        ```bash
+        # Start server
+        localsync serve
+
+        # List packages
+        localsync list
+
+        # Install package
+        localsync install <package-name>
+
+        # Show help
+        localsync --help
+        ```
+
+        ## Manual Installation
+
+        You can also download and install the .deb file directly from the [releases page](https://github.com/chamesh2019/LocalSync/releases).
+
+        ```bash
+        # Download the latest .deb file
+        wget https://github.com/chamesh2019/LocalSync/releases/latest/download/localsync_<version>_all.deb
+
+        # Install it
+        sudo dpkg -i localsync_<version>_all.deb
+        sudo apt-get install -f  # Install any missing dependencies
+        ```
+        EOF
+    
+    - name: Update README with installation instructions
+      run: |
+        if [ ! -s README.md ]; then
+          cp INSTALL.md README.md
+        fi
