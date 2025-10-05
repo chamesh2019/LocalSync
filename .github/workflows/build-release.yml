@@ -35,7 +35,7 @@ jobs:
           python3-pip \
           build-essential \
           devscripts \
-          lintian
+          lintian > /dev/null || true
     
     - name: Install Python dependencies
       run: |
